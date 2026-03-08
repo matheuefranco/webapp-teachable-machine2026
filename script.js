@@ -7,8 +7,8 @@ let lastUpdateTime = 0;
 let currentFacingMode = "user"; // Começa com a frontal
 let model, webcam, labelContainer, maxPredictions;
 
-// Load the image model and setup the webcam
-async function init() {
+async function loadModel(){
+
     const modelURL = URL + "model.json";
     const metadataURL = URL + "metadata.json";
 
@@ -18,7 +18,14 @@ async function init() {
     // Note: the pose library adds "tmImage" object to your window (window.tmImage)
     model = await tmImage.load(modelURL, metadataURL);
     maxPredictions = model.getTotalClasses();
+    labelContainer = document.getElementById("label-container");
 
+}
+
+// Load the image model and setup the webcam
+async function init() {
+
+    loadModel();
     // Convenience function to setup a webcam
     const flip = true; // whether to flip the webcam
     webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
@@ -28,7 +35,6 @@ async function init() {
 
     // append elements to the DOM
     document.getElementById("webcam-container").appendChild(webcam.canvas);
-    labelContainer = document.getElementById("label-container");
     for (let i = 0; i < maxPredictions; i++) { // and class labels
         labelContainer.appendChild(document.createElement("div"));
     }
@@ -55,35 +61,41 @@ async function loop() {
     window.requestAnimationFrame(loop);
 }
 
+function predictClass(prediction){
+
+    let highestProb = 0;
+    let bestClass = "";
+
+    for (let i = 0; i < maxPredictions; i++) {
+        if (prediction[i].probability > highestProb) {
+            highestProb = prediction[i].probability;
+            bestClass = prediction[i].className;
+        }
+    }
+
+    // Aplica a lógica de cores (Verde/Vermelho)
+    let statusColor = "#2ecc71"; 
+    if (bestClass.toLowerCase().includes("no") || bestClass.toLowerCase().includes("sem")) {
+        statusColor = "#e74c3c";
+    }
+
+    // Atualiza a interface (Label Container)
+    labelContainer.innerHTML = `
+        <div style="background: #f0f0f0; padding: 10px; border-radius: 5px; border-left: 5px solid ${statusColor}">
+            <strong>RESULTADO DO ARQUIVO:</strong>
+            <h2 style="color: ${statusColor}; margin: 5px 0;">${bestClass.toUpperCase()}</h2>
+            <small>Confiança: ${(highestProb * 100).toFixed(2)}%</small>
+        </div>`;
+
+}
+
 // run the webcam image through the image model
 async function predict() {
     // predict can take in an image, video or canvas html element
     const now = Date.now();
     const prediction = await model.predict(webcam.canvas);
     if (now - lastUpdateTime > 1000) {
-
-        let highestProb = 0;
-        let bestClass = "";
-
-        for (let i = 0; i < maxPredictions; i++) {
-            if (prediction[i].probability > highestProb) {
-                highestProb = prediction[i].probability;
-                bestClass = prediction[i].className;
-            }
-        }
-
-        let statusColor = "#2ecc71"; // Verde padrão 
-
-        if (bestClass === "NoMask" || bestClass === "Sem Máscara") {
-            statusColor = "#e74c3c"; // Vermelho (Sem máscara)
-        }
-
-        // 2. Aplicar a cor dinâmica ao HTML
-        labelContainer.innerHTML = `
-    <h2 style="color: ${statusColor}; font-family: sans-serif; text-align: center;">
-        STATUS: ${bestClass.toUpperCase()}
-    </h2>`;
-
+        predictClass(prediction);
         lastUpdateTime = now; // Atualiza o marcador de tempo
     }
     /*for (let i = 0; i < maxPredictions; i++) {
@@ -91,4 +103,43 @@ async function predict() {
             prediction[i].className + ": " + prediction[i].probability.toFixed(2);
         labelContainer.childNodes[i].innerHTML = classPrediction;
     }*/
+}
+
+/**
+ * Nova Função: Captura o arquivo, exibe um preview e executa a predição
+ */
+async function predictFromFile() {
+    const fileInput = document.getElementById('file-input');
+    const previewContainer = document.getElementById('file-preview-container');
+    
+    if (fileInput.files && fileInput.files[0]) {
+        const reader = new FileReader();
+
+        reader.onload = async function (e) {
+            previewContainer.innerHTML = `<img id="target-image" src="${e.target.result}" width="200" style="border-radius: 8px;">`;
+                        const imgElement = document.getElementById('target-image');
+            imgElement.onload = async () => {
+                await runStaticPrediction(imgElement);
+            };
+        };
+
+        reader.readAsDataURL(fileInput.files[0]);
+    }
+}
+
+
+/**
+ * Função: Executa a predição em um elemento de imagem estático
+ * @param {HTMLImageElement} imgElement 
+ */
+async function runStaticPrediction(imgElement) {
+
+    if (model == null) {
+        await loadModel();
+    }
+ 
+    const prediction = await model.predict(imgElement);
+    predictClass(prediction);
+
+    
 }
